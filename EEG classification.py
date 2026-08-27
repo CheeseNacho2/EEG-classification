@@ -15,19 +15,20 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import joblib
 
+mne.set_log_level('WARNING')
 tf.random.set_seed(42)
 np.random.seed(42)
 
-data_folder = os.path.join(os.path.dirname(__file__),
-                           "eegsignals",
-                           "eeg-during-mental-arithmetic-tasks-1.0.0")
+#Path to the folder with .edf files
+data_folder = os.path.join(os.path.dirname(__file__), "eegsignals", "eeg-during-mental-arithmetic-tasks-1.0.0")
 
+#List of the .edf file names sorted
 edf_files = glob.glob(os.path.join(data_folder, "Subject*_*.edf"))
 edf_files.sort()
 
-print(f"Found {len(edf_files)} EDF files across {len(edf_files)//2} subjects")
+#print(f"Found {len(edf_files)} EDF files across {len(edf_files)//2} subjects")
 
-# ── Auto Labeling ────────────────────────────────────────────────
+# Labeling .edf files into 2 categories
 def get_label(filepath):
     filename = os.path.basename(filepath)
     if filename.endswith("_2.edf"):
@@ -38,22 +39,38 @@ def get_label(filepath):
 dataset = [(f, get_label(f)) for f in edf_files]
 
 # Verify
-for filepath, label in dataset:
-    print(f"{os.path.basename(filepath)} -> {'Stress' if label == 1 else 'Calm'}")
+#for filepath, label in dataset:
+#    print(f"{os.path.basename(filepath)} -> {'Stress' if label == 1 else 'Calm'}")
 
-# ── Stress-Relevant Channels ─────────────────────────────────────
+# Filtering out stress-relevant channel names
 STRESS_CHANNELS = ['EEG Fp1', 'EEG Fp2', 'EEG F3', 'EEG F4',
                    'EEG Fz', 'EEG T3', 'EEG T4', 'EEG P3', 'EEG P4']
 
-# ── Loading & Filtering ──────────────────────────────────────────
+#Loading in data from .edf files - mne.io processes them and returns relevant data
 def load_and_filter(filepath):
     raw = mne.io.read_raw_edf(filepath, preload=True, verbose=False)
     
     available = [ch for ch in STRESS_CHANNELS if ch in raw.ch_names]
-    raw.pick(available)  # Updated from pick_channels
+    raw.pick(available)
+    
+    # Read the unit multiplier from the file metadata
+    unit_mul = raw.info['chs'][0]['unit_mul']
+    
+    # Convert to microvolts based on whatever unit the file uses
+    # MNE unit_mul values: 0=none, -6=micro, -3=milli
+    if unit_mul == 0:    # Stored in Volts → multiply by 1e6
+        scale = 1e6
+    elif unit_mul == -3: # Stored in millivolts → multiply by 1e3
+        scale = 1e3
+    elif unit_mul == -6: # Already in microvolts → no change
+        scale = 1.0
+    else:
+        scale = 1.0
+        print(f"Warning: Unknown unit multiplier {unit_mul} in {filepath}")
+    
+    raw.apply_function(lambda x: x * scale, picks='all')
     
     raw.filter(0.5, 45, verbose=False)
-    
     return raw
 
 # Testing
@@ -62,44 +79,38 @@ def load_and_filter(filepath):
 #print(f"Sample rate: {raw.info['sfreq']} Hz")
 #print(f"Duration: {raw.times[-1]:.1f} seconds")
 
-# ── Epoching ─────────────────────────────────────────────────────
-EPOCH_DURATION = 2.0   # seconds per epoch
-OVERLAP = 0.5          # 50% overlap between epochs
+# Epoching
+EPOCH_DURATION = 2.0   # Seconds per epoch
+OVERLAP = 1.0          # 50% overlap between epochs
 
 def epoch_signal(raw):
-    sfreq = raw.info['sfreq']                    # 500 Hz
-    epoch_samples = int(EPOCH_DURATION * sfreq)  # 1000 samples per epoch
-    step_samples = int(epoch_samples * (1 - OVERLAP))  # 500 samples step
-
-    data = raw.get_data()  # Shape: (9 channels, total_samples)
-    epochs = []
-
-    for start in range(0, data.shape[1] - epoch_samples, step_samples):
-        epoch = data[:, start:start + epoch_samples]
-        epochs.append(epoch)
-
-    return np.array(epochs)  # Shape: (n_epochs, 9 channels, 1000 samples)
+    epochs = mne.make_fixed_length_epochs(
+        raw,
+        duration=EPOCH_DURATION,
+        overlap=OVERLAP,
+        verbose=False
+    )
+    return epochs.get_data()  # Shape: (n_epochs, 9 channels, 1000 samples)
 
 # Testing
 #epochs = epoch_signal(raw)
 #print(f"Epochs shape: {epochs.shape}")
 #print(f"Number of epochs from first file: {epochs.shape[0]}")
 
+#Bands affected the most by stress related brain activity and their signal frequencies
 BANDS = {
     'theta': (4, 8),
     'alpha': (8, 13),
     'beta':  (13, 30)
 }
 
+
+#Based on extracted frequencies and band names
 def extract_band_power(epoch, sfreq=500):
-    """
-    For each channel, calculate the power in each frequency band.
-    Returns a 1D feature vector.
-    """
     features = []
 
     for channel in epoch:  # Loop over each of the 9 channels
-        # Welch method estimates power at each frequency
+        # Welch method estimates power at each frequency and returns array of frequncies and avg. power
         freqs, psd = welch(channel, sfreq, nperseg=sfreq*2)
 
         for band_name, (low, high) in BANDS.items():
@@ -109,7 +120,7 @@ def extract_band_power(epoch, sfreq=500):
             band_power = np.mean(psd[band_mask])
             features.append(band_power)
 
-    # Frontal asymmetry — F4 minus F3 alpha power (key stress marker)
+    # Frontal asymmetry — F4 minus F3 alpha power (key stress marker) to add to the final array
     f3_idx = STRESS_CHANNELS.index('EEG F3')
     f4_idx = STRESS_CHANNELS.index('EEG F4')
 
@@ -129,6 +140,8 @@ def extract_band_power(epoch, sfreq=500):
 #print(f"Features per epoch: {sample_features.shape[0]}")
 #print(f"Breakdown: 9 channels × 3 bands = 27, + 1 frontal asymmetry = 28")
 
+
+#Building the dataset using processed data
 def build_dataset(dataset):
     all_features = []
     all_labels = []
@@ -159,7 +172,7 @@ X, y = build_dataset(dataset)
 X_calm   = X[y == 0]
 X_stress = X[y == 1]
 
-# Undersample calm to match stress count
+# Undersample calm to match stress count - to prevent prediction bias
 X_calm_balanced = resample(X_calm, 
                            n_samples=len(X_stress),
                            random_state=42)
@@ -174,42 +187,49 @@ y_balanced = np.hstack([np.zeros(len(X_stress)),
 #print(f"Stress epochs: {np.sum(y_balanced == 1)}")
 #print(f"Total:         {len(y_balanced)}")
 
-scaler = StandardScaler()
-X_scaled = scaler.fit_transform(X_balanced)
 
+#Splitting samples into training and testing sets
 X_train, X_test, y_train, y_test = train_test_split(
-    X_scaled, y_balanced,
+    X_balanced, y_balanced,
     test_size=0.2,
     random_state=42,
     stratify=y_balanced
 )
 
-joblib.dump(scaler, 'scaler.pkl')
+#Normalisation due to diferences in signal strengths in different regions
+scaler = StandardScaler()
+X_train = scaler.fit_transform(X_train)
+X_test = scaler.transform(X_test)
 
-# ── Build Model ───────────────────────────────────────────────────
+
+os.makedirs('models', exist_ok=True)
+joblib.dump(scaler, 'models/scaler.pkl')
+
+#  Build the CNN
 def build_model(input_shape):
     model = keras.Sequential([
         # Input
         layers.Input(shape=input_shape),
         
-        # First dense block
+        # First Hidden Layer
         layers.Dense(64, activation='relu'),
         layers.BatchNormalization(),
         layers.Dropout(0.3),
         
-        # Second dense block
+        # Second Hidden Layer
         layers.Dense(32, activation='relu'),
         layers.BatchNormalization(),
         layers.Dropout(0.3),
         
-        # Third dense block
+        # Third Hidden Layer
         layers.Dense(16, activation='relu'),
         layers.BatchNormalization(),
         layers.Dropout(0.2),
         
-        # Output — single neuron, stress probability 0-1
+        # Output
         layers.Dense(1, activation='sigmoid')
     ])
+
     
     model.compile(
         optimizer=keras.optimizers.Adam(learning_rate=0.001),
@@ -221,9 +241,8 @@ def build_model(input_shape):
 
 model = build_model(input_shape=(28,))
 model.summary()
-os.makedirs('models', exist_ok=True)
 
-# ── Callbacks ─────────────────────────────────────────────────────
+# Callbacks - In case accuracy never reaches the highest point again
 callbacks = [
     keras.callbacks.EarlyStopping(
         monitor='val_loss',
@@ -237,12 +256,12 @@ callbacks = [
     )
 ]
 
-# ── Train ─────────────────────────────────────────────────────────
+# Training
 history = model.fit(
     X_train, y_train,
     epochs=110,
     batch_size=32,
-    validation_split=0.2,
+    validation_data=(X_test, y_test),
     callbacks=callbacks,
     verbose=1
 )
