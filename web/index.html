@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EEG Stress Classifier</title>
+
+    <!-- Inter Font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+    <div class="page-wrapper">
+
+        <!-- Title -->
+        <header>
+            <h1>EEG Stress Classifier</h1>
+            <p class="subtitle">Upload an EEG recording to analyse stress levels</p>
+        </header>
+
+        <div id="banner" style="
+        display: none;
+        padding: 12px 20px;
+        border-radius: 10px;
+        font-size: 0.9rem;
+        font-weight: 500;
+        text-align: center"
+        ></div>
+
+        <!-- Upload Card -->
+        <div class="card" id="upload-card">
+            <h2>Upload EEG File</h2>
+            <div class="upload-area" id="upload-area">
+                <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="17 8 12 3 7 8"/>
+                    <line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+                <p>Drag and drop your <strong>.edf</strong> file here</p>
+                <p class="or">or</p>
+                <label for="file-input" class="btn btn-secondary">Browse File</label>
+                <input type="file" id="file-input" accept=".edf" hidden>
+            </div>
+            <p class="file-name" id="file-name">No file selected</p>
+            <button class="btn btn-primary" id="predict-btn" disabled>Analyse</button>
+        </div>
+
+        <!-- Loading -->
+        <div class="card hidden" id="loading-card">
+            <div class="spinner"></div>
+            <p id="loading-text">Analysing EEG signal...</p>
+        </div>
+
+        <!-- Result Card -->
+        <div class="card hidden" id="result-card">
+            <h2>Result</h2>
+            <div class="result-badge" id="result-badge">
+                <span id="result-label"></span>
+                <span id="result-prob"></span>
+            </div>
+        </div>
+
+        <!-- Graphs Row -->
+        <div class="graphs-row hidden" id="graphs-row">
+            <!-- Epoch Graph -->
+            <div class="card graph-card">
+                <h2>Stress Probability Per Epoch</h2>
+                <canvas id="epoch-chart"></canvas>
+            </div>
+
+            <!-- Feature Importance -->
+            <div class="card graph-card">
+                <h2>Top 10 Feature Importance</h2>
+                <canvas id="importance-chart"></canvas>
+            </div>
+        </div>
+
+        <!-- Retrain Card -->
+        <div class="card hidden" id="retrain-card">
+            <h2>Was this prediction correct?</h2>
+            <p class="retrain-subtitle">Your feedback helps improve the model</p>
+            <div class="retrain-row">
+                <button class="btn btn-calm" id="yes-btn">✓ Yes</button>
+                <button class="btn btn-stress" id="no-btn">✗ No</button>
+            </div>
+            <p class="retrain-status" id="retrain-status"></p>
+        </div>
+F
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

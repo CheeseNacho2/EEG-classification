@@ -13,7 +13,6 @@ dist/
 models/
 eegsignals/
 temp_uploads/
-web/
 .vscode/
 .idea/
 *.suo
