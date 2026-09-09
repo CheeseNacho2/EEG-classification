@@ -1,40 +1,87 @@
-import tensorflow as tf
-from tensorflow import keras
+import os
+import sys
+import gc
 import numpy as np
 import joblib
-import os
+from tensorflow import keras
 from utils import (STRESS_CHANNELS, BANDS, EPOCH_DURATION,
                    OVERLAP, load_and_filter, epoch_signal,
                    extract_band_power, get_feature_names)
 
-# ── Paths ─────────────────────────────────────────────────────────
-MODEL_PATH  = 'models/model.keras'
-SCALER_PATH = 'models/scaler.pkl'
+# 1. Resolve absolute base path reliably
+if getattr(sys, 'frozen', False):
+    BASE_DIR = sys._MEIPASS
+else:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# ── Load Model & Scaler ───────────────────────────────────────────
+MODEL_PATH  = os.path.join(BASE_DIR, "models", "model.keras")
+SCALER_PATH = os.path.join(BASE_DIR, "models", "scaler.pkl")
+EXPECTED_FEATURES = 28
+
+
 def load_assets():
-    model  = keras.models.load_model(MODEL_PATH)
-    scaler = joblib.load(SCALER_PATH)
-    return model, scaler
+    try:
+        model  = keras.models.load_model(MODEL_PATH)
+        scaler = joblib.load(SCALER_PATH)
+        return model, scaler
+    except Exception as e:
+        raise RuntimeError(f"Failed to load model or scaler at {MODEL_PATH}: {e}")
 
-# ── Predict ───────────────────────────────────────────────────────
-def predict_stress(filepath):
+try:
     model, scaler = load_assets()
+    print("Model and scaler loaded successfully.")
+except RuntimeError as e:
+    print(f"Startup error: {e}")
+    raise
 
-    # Preprocess
-    raw    = load_and_filter(filepath)
-    epochs = epoch_signal(raw)
 
-    # Extract features from each epoch
-    features = np.array([extract_band_power(epoch) for epoch in epochs])
+def pad_features(X, expected_dim=EXPECTED_FEATURES):
+    current_dim = X.shape[1]
+    if current_dim < expected_dim:
+        missing_cols = expected_dim - current_dim
+        padding      = np.zeros((X.shape[0], missing_cols))
+        return np.hstack((X, padding))
+    elif current_dim > expected_dim:
+        return X[:, :expected_dim]
+    return X
 
-    # Scale using saved scaler
-    features_scaled = scaler.transform(features)
 
-    # Predict each epoch
-    epoch_probs = model.predict(features_scaled, verbose=0).flatten()
+def predict_stress(filepath):
+    try:
+        raw    = load_and_filter(filepath)
+        epochs = epoch_signal(raw)
+        if hasattr(raw, 'close'):
+            raw.close()
+        del raw
+        gc.collect()
+    except Exception as e:
+        raise RuntimeError(f"Failed to load EDF file: {e}")
 
-    # Average across all epochs for final result
+    if len(epochs) == 0:
+        raise ValueError("No epochs could be extracted — recording may be too short.")
+
+    try:
+        features = np.array([extract_band_power(epoch) for epoch in epochs])
+        features = pad_features(features)
+    except Exception as e:
+        raise RuntimeError(f"Failed to extract features: {e}")
+
+    if np.any(np.isnan(features)) or np.any(np.isinf(features)):
+        raise ValueError("Feature extraction produced invalid values.")
+
+    try:
+        features_scaled = scaler.transform(features)
+    except Exception as e:
+        raise RuntimeError(f"Failed to scale features: {e}")
+
+    try:
+        epoch_probs = model.predict(features_scaled, verbose=0).flatten()
+    except Exception as e:
+        raise RuntimeError(f"Model prediction failed: {e}")
+
+    if len(epoch_probs) == 0:
+        raise RuntimeError("Model returned no predictions.")
+
     mean_prob = float(np.mean(epoch_probs))
     label     = 'Stress' if mean_prob >= 0.5 else 'Calm'
 
@@ -45,31 +92,72 @@ def predict_stress(filepath):
         'n_epochs':    len(epoch_probs)
     }
 
-# ── Retrain ───────────────────────────────────────────────────────
+
 def retrain(new_filepath, true_label):
-    """
-    true_label: 0 = Calm, 1 = Stress
-    Called from UI when user submits new labelled EEG data.
-    """
-    model, scaler = load_assets()
+    global model, scaler
 
-    # Preprocess new file
-    raw    = load_and_filter(new_filepath)
-    epochs = epoch_signal(raw)
+    if true_label not in [0, 1]:
+        raise ValueError(f"Invalid label '{true_label}'. Must be 0 (Calm) or 1 (Stress).")
 
-    # Extract and scale features
-    features        = np.array([extract_band_power(epoch) for epoch in epochs])
-    features_scaled = scaler.transform(features)
-    labels          = np.full(len(features), true_label)
+    try:
+        raw    = load_and_filter(new_filepath)
+        epochs = epoch_signal(raw)
+        if hasattr(raw, 'close'):
+            raw.close()
+        del raw
+        gc.collect()
+    except Exception as e:
+        raise RuntimeError(f"Failed to load EDF file for retraining: {e}")
 
-    # Fine-tune model on new data
-    model.fit(
-        features_scaled, labels,
-        epochs=10,
-        batch_size=32,
-        verbose=1
-    )
+    if len(epochs) == 0:
+        raise ValueError("No epochs could be extracted — recording may be too short.")
 
-    # Save updated model
-    model.save(MODEL_PATH)
-    print(f"Model retrained on {os.path.basename(new_filepath)} and saved.")
+    try:
+        features = np.array([extract_band_power(epoch) for epoch in epochs])
+        features = pad_features(features)
+    except Exception as e:
+        raise RuntimeError(f"Failed to extract features for retraining: {e}")
+
+    if np.any(np.isnan(features)) or np.any(np.isinf(features)):
+        raise ValueError("Feature extraction produced invalid values.")
+
+    try:
+        if hasattr(scaler, 'partial_fit'):
+            scaler.partial_fit(features)
+        else:
+            scaler.fit(features)
+        features_scaled = scaler.transform(features)
+    except Exception as e:
+        raise RuntimeError(f"Failed to scale features for retraining: {e}")
+
+    labels = np.full(len(features), true_label)
+
+    try:
+        model.fit(
+            features_scaled, labels,
+            epochs=10,
+            batch_size=32,
+            verbose=1
+        )
+    except Exception as e:
+        raise RuntimeError(f"Model retraining failed: {e}")
+
+    # Safely save and release resource handles
+    try:
+        temp_model_path = MODEL_PATH + ".tmp"
+        model.save(temp_model_path)
+        joblib.dump(scaler, SCALER_PATH)
+
+        del model
+        del scaler
+        keras.backend.clear_session()
+        gc.collect()
+
+        if os.path.exists(MODEL_PATH):
+            os.remove(MODEL_PATH)
+        os.rename(temp_model_path, MODEL_PATH)
+
+        model, scaler = load_assets()
+        print("Model and scaler reloaded successfully after retraining.")
+    except Exception as e:
+        raise RuntimeError(f"Failed to save/reload model after retraining: {e}")
