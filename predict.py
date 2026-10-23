@@ -3,7 +3,7 @@ import sys
 import gc
 import numpy as np
 import joblib
-from tensorflow import keras
+import keras
 from utils import (STRESS_CHANNELS, BANDS, EPOCH_DURATION,
                    OVERLAP, load_and_filter, epoch_signal,
                    extract_band_power, get_feature_names)

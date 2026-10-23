@@ -1,0 +1,29 @@
+{
+    "family": "eeg-stress-classifier",
+    "networkMode": "awsvpc",
+    "requiresCompatibilities": ["FARGATE"],
+    "cpu": "1024",
+    "memory": "3072",
+    "containerDefinitions": [
+        {
+            "name": "eeg-stress-classifier",
+            "image": "000622214121.dkr.ecr.eu-north-1.amazonaws.com/eeg-stress-classifier:latest",
+            "portMappings": [
+                {
+                    "containerPort": 8000,
+                    "protocol": "tcp"
+                }
+            ],
+            "essential": true,
+            "logConfiguration": {
+                "logDriver": "awslogs",
+                "options": {
+                    "awslogs-group": "/ecs/eeg-stress-classifier",
+                    "awslogs-region": "eu-north-1",
+                    "awslogs-stream-prefix": "ecs"
+                }
+            }
+        }
+    ],
+    "executionRoleArn": "arn:aws:iam::000622214121:role/ecsTaskExecutionRole"
+}
