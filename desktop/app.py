@@ -24,7 +24,7 @@ BASE_DIR = get_base_dir()
 # Correctly resolves project_root/desktop/assets across both environments
 ASSETS_DIR = os.path.join(BASE_DIR, 'desktop', 'assets')
 
-API_URL = "http://localhost:8000"
+API_URL = "http://13.61.35.159:8000"
 HTTP_TIMEOUT = (3.0, 60.0)
 
 
@@ -94,6 +94,8 @@ class RetrainWorker(QThread):
                 self.finished.emit(response.json())
             else:
                 self.error.emit(response.json().get("detail", f"Retraining failed (Status {response.status_code})"))
+                print(f"Retrain status: {response.status_code}")
+                print(f"Retrain response: {response.text}")
         except requests.exceptions.Timeout:
             self.error.emit("Connection timed out during model retraining.")
         except requests.exceptions.ConnectionError:

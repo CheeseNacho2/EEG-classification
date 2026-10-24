@@ -8,6 +8,7 @@ import requests
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QTimer, QThread, pyqtSignal
 
+
 # ── Critical for PyInstaller on Windows ──────────────────────────
 multiprocessing.freeze_support()
 
@@ -17,7 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from desktop.app import MainWindow, SplashScreen
 
 # ── Configuration ─────────────────────────────────────────────────
-API_URL = "http://localhost:8000"
+API_URL = "http://13.61.35.159:8000"
 API_RETRIES = 40  # Accounts for backend boot & model loading time
 
 

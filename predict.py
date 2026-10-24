@@ -3,6 +3,7 @@ import sys
 import gc
 import numpy as np
 import joblib
+import uuid
 import keras
 from utils import (STRESS_CHANNELS, BANDS, EPOCH_DURATION,
                    OVERLAP, load_and_filter, epoch_signal,
@@ -144,20 +145,34 @@ def retrain(new_filepath, true_label):
 
     # Safely save and release resource handles
     try:
-        temp_model_path = MODEL_PATH + ".tmp"
+        temp_model_path = os.path.join(
+            os.path.dirname(MODEL_PATH),
+            f"model_temp_{uuid.uuid4().hex}.keras"
+        )
+        
+        print(f"Saving to temp: {temp_model_path}")
         model.save(temp_model_path)
+        print("Model saved successfully")
+        
         joblib.dump(scaler, SCALER_PATH)
-
-        del model
-        del scaler
-        keras.backend.clear_session()
-        gc.collect()
-
+        print("Scaler saved successfully")
+        
         if os.path.exists(MODEL_PATH):
             os.remove(MODEL_PATH)
+            print("Old model removed")
+            
         os.rename(temp_model_path, MODEL_PATH)
-
+        print("Model renamed successfully")
+        
+        del model
+        del scaler
+        gc.collect()
+        keras.backend.clear_session()
+        gc.collect()
+        print("Resources cleared")
+        
         model, scaler = load_assets()
         print("Model and scaler reloaded successfully after retraining.")
     except Exception as e:
+        print(f"EXACT ERROR: {type(e).__name__}: {e}")
         raise RuntimeError(f"Failed to save/reload model after retraining: {e}")
