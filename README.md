@@ -10,7 +10,7 @@ Using the MNE Python library, the data from EDF files can be extracted and trans
 
 ## How to Use
 1. First use `EEG classification.py` to create a trained model with a scaler (used to normalize the scale of input features). For that we need datasets of EDF files and this specific code needs them labeled as `Subject[number]_[1 or 2]` — 1 for the calm state and 2 for the stressed state. The relative path to the datasets is by default named as `eegsignals/eeg-during-mental-arithmetic-tasks-1.0.0` but can be changed in the code. An example folder is in this repository.
-2. After the `model.keras` and `scaler.pkl` files are created, the app can run. You can simply open the app using `run.py` or start up `api.py` and then open localhost to access the web version.
+2. After the `model.keras` and `scaler.pkl` files are created, the app can run. You can simply open the app using `run.py` or `app.py`. The api was containerised using Docker and it is currently running on an AWS server. Retraining however only works on localhost due to cloud service pricing. If you wish to run it on local host, change the API_URL in `app.py`, `app.js`, and `run.py` to `127.0.0.1`.
 3. Both versions can predict independent EDF files given that they have data in all the necessary channels.
 
 ## Credits
